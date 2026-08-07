@@ -62,7 +62,7 @@ def save_single(ahi_p: str, ahi_name: str, prompt: str, content: str):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("UPDATE expert_state SET total_answers = total_answers + 1, updated_at = NOW() WHERE ahi_p = %s;", (ahi_p,))
-    mock_vec = [randomuniform(-) for _ in range()]
+    mock_vec = [random.uniform(-1, 1) for _ in range(1536)]
     cur.execute("INSERT INTO ahi_evolution_vectors (ahi_p, ahi_name, prompt, content, embedding) VALUES (%s, %s, %s, %s, %s);", (ahi_p, ahi_name, prompt, content, mock_vec))
     conn.commit()
     cur.close()
@@ -79,21 +79,21 @@ async def fetch_ai(name: str, cfg: Dict[str, str], prompt: str) -> str:
                 payload = {"contents": [{"parts": [{"text": prompt}]}]}
                 res = await client.post(url, headers=headers, json=payload)
                 if res.status_code == 200:
-                    return res.json()["candidates"]["content"]["parts"]["text"]
-                return f"Lỗi Gemini ({res.status_code}): {res.text}"
+                    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                return f"Lỗi Gemini ({res.status_code}): {res.text[:100]}"
             
             base = "https://groq.com" if prov == "groq" else "https://openrouter.ai"
             key = GROQ_KEY if prov == "groq" else OPENROUTER_KEY
-            # ĐÃ SỬA LỖI CÚ PHÁP TẠI ĐÂY
-            res = await client.post(f"{base}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": mod, "messages": [{"role": ""content": prompt}]})
+            # FIX: Sửa lỗi cấu hình JSON tại đây
+            res = await client.post(f"{base}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": mod, "messages": [{"role": "user", "content": prompt}]})
             if res.status_code == 200:
-                return res.json()["choices"]["message"]["content"]
-            return f"Lỗi {prov} ({res.status_code}): {res.text}"
+                return res.json()["choices"][0]["message"]["content"]
+            return f"Lỗi {prov} ({res.status_code}): {res.text[:100]}"
         except Exception as e:
-            return f"Lỗi hệ thống: {str(e)}"
+            return f"Lỗi kết nối: {str(e)}"
 
 async def run_all(prompt: str):
-    tasks = [fetch_ai(n, c, prompt) for n, c in AHI_OLD_MODELSitems()]
+    tasks = [fetch_ai(n, c, prompt) for n, c in AHI_OLD_MODELS.items()]
     return await asyncio.gather(*tasks)
 
 st.title("🧬 AHI-Orchestrator Workspace")
@@ -119,12 +119,12 @@ if st.session_state.results:
     model_names = list(AHI_OLD_MODELS.keys())
     for i, res_text in enumerate(st.session_state.results):
         m_name = model_names[i]
-        c1, c2 = st.columns()
+        c1, c2 = st.columns([0.85, 0.15])
         with c1:
             with st.expander(f"📌 {m_name}", expanded=True): st.write(res_text)
         with c2:
             if st.button("Lưu", key=f"btn_{i}"):
                 save_single(user_id, m_name, st.session_state.last_p, res_text)
-                st.success("Đã lưu!")
+                st.success("OK")
                 time.sleep(0.5)
                 st.rerun()
