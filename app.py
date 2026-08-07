@@ -179,7 +179,8 @@ if st.session_state["current_results"]:
     st.subheader("📋 Kết quả phân tích & Bộ lọc thêm vào bộ nhớ tích lũy")
     st.info("Hãy tích chọn vào ô bên cạnh câu trả lời bạn muốn lưu vết tiến hóa. Hệ thống sẽ tự động cộng điểm lên đám mây.")
     for model_name, ai_response in st.session_state["current_results"].items():
-        col_text, col_action = st.columns()
+        # SỬA LỖI TẠI ĐÂY: Truyền tỷ lệ chia khung cột chuẩn xác [5 phần cho văn bản, 1 phần cho nút tích]
+        col_text, col_action = st.columns([5, 1])
         with col_text:
             st.write(f"### 📌 {model_name}")
             st.write(ai_response)
