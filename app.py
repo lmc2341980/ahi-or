@@ -1,4 +1,3 @@
-# Sao chép toàn bộ code
 import asyncio
 import json
 import os
@@ -22,7 +21,10 @@ def init_neon_tables():
     try:
         conn = get_connection()
         cur = conn.cursor()
-        cur.execute("CREATE EXTENSION IF NOT EXISTS pgvector;")
+        # SỬA LỖI TẠI ĐÂY: Tên extension chuẩn trên Neon là 'vector' chứ không phải 'pgvector'
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        
+        # DẠNG DBRS: Trạng thái và số câu tích lũy thực tế của Chuyên gia AHI-P
         cur.execute("""
             CREATE TABLE IF NOT EXISTS expert_state (
                 ahi_p TEXT PRIMARY KEY,
@@ -31,6 +33,7 @@ def init_neon_tables():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        # DẠNG DBV: Lưu trữ tri thức dưới dạng tọa độ hình học Vector toán học
         cur.execute("""
             CREATE TABLE IF NOT EXISTS ahi_evolution_vectors (
                 id SERIAL PRIMARY KEY,
@@ -48,6 +51,7 @@ def init_neon_tables():
     except Exception as e:
         st.error(f"Lỗi khởi tạo Database: {e}")
 
+# Kích hoạt tạo bảng ngay khi ứng dụng khởi chạy
 init_neon_tables()
 
 GEMINI_KEY = st.secrets.get("GEMINI_API_KEY", "")
@@ -164,7 +168,7 @@ if user_id:
 
 main_prompt = st.text_area("Nhập câu lệnh điều phối kiến thức:")
 
-if st.button("Kích hoạt Tiến hóa Đa Mô Hình"):
+if st.button("Kích hoạt Phân phối Tiến hóa Đa Mô Hình"):
     if not main_prompt.strip():
         st.warning("Vui lòng nhập nội dung.")
     else:
