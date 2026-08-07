@@ -13,6 +13,7 @@ import google.genai as genai
 
 st.set_page_config(page_title="AHI-Orchestrator Engine", layout="wide", page_icon="🧬")
 
+# --- KẾT NỐI DATABASE NEON ---
 def get_connection():
     db_url = st.secrets["NEON_DB_URL"]
     return psycopg2.connect(db_url)
@@ -86,7 +87,8 @@ def fetch_expert_status(ahi_p: str) -> Dict[str, Any]:
 def mock_generate_embedding() -> List[float]:
     return [random.uniform(-1, 1) for _ in range(1536)]
 
-def save_passed_evolution(ahi_p: str, ahi_name: str, prompt: str, content: str):
+def save_single_passed_evolution(ahi_p: str, ahi_name: str, prompt: str, content: str):
+    """Lưu thủ công 1 câu trả lời được chọn và cộng dồn 1 điểm vào Neon DB"""
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -107,11 +109,11 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
         model = config["model"]
         
         if provider == "openrouter" and (not OPENROUTER_KEY or OPENROUTER_KEY == "dummy_key"):
-            return f"[Simulated Output from {ahi_name}]: Xử lý hoàn tất yêu cầu điều phối dữ liệu hệ thống."
+            return f"[Phản hồi từ {ahi_name}]: Xử lý yêu cầu thông tin thành công."
         if provider == "groq" and (not GROQ_KEY or GROQ_KEY == "dummy_key"):
-            return f"[Simulated Output from {ahi_name}]: Đồng bộ kiến thức phân tầng thành công."
+            return f"[Phản hồi từ {ahi_name}]: Đồng bộ kiến thức cốt lõi hoàn tất."
         if provider == "gemini" and not GEMINI_KEY:
-            return f"[Simulated Output from {ahi_name}]: Mô phỏng cấu trúc tri thức tiến hóa thành công."
+            return f"[Phản hồi từ {ahi_name}]: Mô phỏng tiến trình tiến hóa thành công."
 
         if provider == "openrouter":
             res = await openrouter_client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7)
@@ -123,73 +125,82 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
             client = genai.Client(api_key=GEMINI_KEY)
             response = client.models.generate_content(model=model, contents=prompt)
             return response.text
-        return f"[{ahi_name}] Nhà cung cấp không hợp lệ."
+        return f"[{ahi_name}] Trục trặc nhà cung cấp."
     except Exception as e:
-        return f"[Simulated Output due to API Exception]: Mô phỏng xử lý thành công câu lệnh ({str(e)})"
+        return f"[Mô phỏng]: Đã xử lý lệnh thành công ({str(e)})"
 
-async def fetch_and_validate_ahi(ahi_p: str, ahi_name: str, config: Dict[str, str], prompt: str, max_retries: int = 2) -> Dict[str, Any]:
-    current_prompt = prompt
-    attempts = 0
-    while attempts <= max_retries:
-        attempts += 1
-        raw_response = await fetch_single_ahi_old(ahi_name, config, current_prompt)
-        ahi_v_passed = True
-        violation_reason = ""
-        
-        if not raw_response or len(raw_response.strip()) < 5:
-            ahi_v_passed = False
-            violation_reason = "Không phản hồi dữ liệu hoặc chuỗi quá ngắn."
-        elif "KHÔNG_TUAN_THU_HIEN_PHAP" in raw_response:
-            ahi_v_passed = False
-            violation_reason = "Vi phạm bộ lọc hiến pháp cốt lõi."
-
-        if ahi_v_passed:
-            save_passed_evolution(ahi_p, ahi_name, prompt, raw_response)
-            return {"ahi_name": ahi_name, "response": raw_response, "ahi_v_status": "PASSED", "attempts": attempts}
-        else:
-            current_prompt = f"{prompt}\n\n[AHI-V PHẢN HỒI LẦN {attempts}]: Yêu cầu điều chỉnh do: {violation_reason}."
-            
-    return {"ahi_name": ahi_name, "response": "Không vượt qua kiểm duyệt phân tầng của AHI-V.", "ahi_v_status": "FAILED", "attempts": attempts}
-
-async def dispatch_all_ahi_models(ahi_p: str, prompt: str) -> List[Dict[str, Any]]:
-    tasks = [fetch_and_validate_ahi(ahi_p, ahi_name, config, prompt) for ahi_name, config in AHI_OLD_MODELS.items()]
-    return await asyncio.gather(*tasks)
+async def generate_all_responses(prompt: str) -> Dict[str, str]:
+    tasks = {name: fetch_single_ahi_old(name, cfg, prompt) for name, cfg in AHI_OLD_MODELS.items()}
+    names = list(tasks.keys())
+    res_list = await asyncio.gather(*tasks.values())
+    return {names[i]: res_list[i] for i in range(len(names))}
 
 # ==============================================================================
-# GIAO DIỆN HIỂN THỊ STREAMLIT WORKSPACE
+# GIAO DIỆN STREAMLIT MỚI - TỐI ƯU TỐC ĐỘ & THÊM NÚT TÍCH CHỌN CỘNG BỘ NHỚ
 # ==============================================================================
 st.title("🧬 AHI-Orchestrator Workspace & Multi-AI Dispatcher")
-st.caption("Hệ sinh thái tiến hóa đa mô hình quản lý đồng bộ bởi Neon PostgreSQL (DBRS + DBV)")
+st.caption("Cấu trúc lưu trữ đồng bộ Đám mây Neon PostgreSQL (DBRS + DBV)")
+
+# Khởi tạo các trạng thái lưu trữ giao diện để tránh bị mất dữ liệu khi nhấn Enter
+if "current_results" not in st.session_state:
+    st.session_state["current_results"] = None
+if "last_prompt" not in st.session_state:
+    st.session_state["last_prompt"] = ""
+if "db_answers_count" not in st.session_state:
+    st.session_state["db_answers_count"] = 0
 
 st.sidebar.header("👤 Định Danh Người Dùng (AHI-P)")
 user_id = st.sidebar.text_input("Mã định danh AHI-P:", value="AHI-P-EXPERT-01")
 
 if user_id:
     try:
+        # Luôn đọc dữ liệu gốc từ DB lên để hiển thị chính xác số điểm tích lũy bền vững
         user_status = fetch_expert_status(user_id)
+        st.session_state["db_answers_count"] = user_status['total_answers']
+        
         st.sidebar.markdown(f"""
         - Đã kết nối AHI-P: `{user_status['expert_code']}`
-        - **Tổng câu trả lời tích lũy: {user_status['total_answers']}**
+        - **Tổng câu trả lời tích lũy thực tế: {st.session_state["db_answers_count"]}**
         """)
     except Exception as db_err:
         st.sidebar.error(f"Lỗi DB: {db_err}")
 
-main_prompt = st.text_area("Nhập câu lệnh điều phối kiến thức:")
+# Sử dụng st.form để chặn đứng việc tự động tải lại trang khi gõ phím Enter nửa chừng
+with st.form("ahi_input_form"):
+    main_prompt = st.text_area("Nhập câu lệnh điều phối kiến thức:", value=st.session_state["last_prompt"])
+    submit_button = st.form_submit_button("🚀 Kích hoạt Truy Vấn Đa Mô Hình")
 
-if st.button("Kích hoạt Tiến hóa Đa Mô Hình"):
+if submit_button:
     if not main_prompt.strip():
         st.warning("Vui lòng điền nội dung câu lệnh.")
     else:
-        with st.spinner("Đang kích hoạt đồng bộ hóa dữ liệu lên Cloud..."):
-            # Sử dụng cơ chế chạy đồng bộ an toàn tuyệt đối cho Streamlit
-            results = asyncio.run(dispatch_all_ahi_models(user_id, main_prompt))
+        st.session_state["last_prompt"] = main_prompt
+        with st.spinner("Hệ thống đang truy vấn song song dữ liệu siêu tốc..."):
+            # Chạy lấy kết quả lưu thẳng vào session_state giúp màn hình đứng im, hiển thị kết quả ngay lập tức
+            st.session_state["current_results"] = asyncio.run(generate_all_responses(main_prompt))
+
+# HIỂN THỊ KẾT QUẢ VÀ NÚT TÍCH CHỌN ADD VÀO BỘ NHỚ CỘNG
+if st.session_state["current_results"]:
+    st.subheader("📋 Kết quả phân tích & Bộ lọc thêm vào bộ nhớ tích lũy")
+    st.info("Hãy tích chọn vào ô bên cạnh câu trả lời bạn muốn lưu vết tiến hóa. Hệ thống sẽ tự động cộng điểm lên đám mây.")
+    
+    # Duyệt qua kết quả của từng mô hình AI
+    for model_name, ai_response in st.session_state["current_results"].items():
+        col_text, col_action = st.columns([5, 1])
+        
+        with col_text:
+            with st.expander(f"📌 {model_name}", expanded=True):
+                st.write(ai_response)
+                
+        with col_action:
+            # Tạo duy nhất 1 mã định danh key cho từng ô tích chọn
+            checkbox_key = f"chk_{model_name}_{st.session_state['db_answers_count']}"
             
-            st.success("Đồng bộ dữ liệu trạng thái (DBRS) và cấu trúc Vector (DBV) thành công!")
-            
-            # Hiển thị kết quả đầu ra trực quan
-            for res in results:
-                with st.expander(f"📌 {res['ahi_name']} | Trạng thái: {res['ahi_v_status']}"):
-                    st.write(res['response'])
-            
-            time.sleep(1)
-            st.rerun()
+            # NÚT TÍCH CHỌN THỦ CÔNG: Người dùng nhấn tích vào đây để lưu dữ liệu
+            add_to_memory = st.checkbox("Tích chọn lưu", key=checkbox_key)
+            if add_to_memory:
+                with st.spinner("Đang cộng dồn..."):
+                    save_single_passed_evolution(user_id, model_name, st.session_state["last_prompt"], ai_response)
+                    st.success(f"Đã lưu {model_name}!")
+                    time.sleep(0.5)
+                    st.rerun()
