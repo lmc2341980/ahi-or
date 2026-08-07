@@ -104,21 +104,25 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
     
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
+            # 1. XỬ LÝ LUỒNG GEMINI KHÓA AQ.
             if provider == "gemini":
                 if not GEMINI_KEY or GEMINI_KEY == "dummy_key":
-                    return "[Lỗi cấu hình]: Chưa điền GEMINI_API_KEY trong mục Secrets."
-                url = f"https://googleapis.com{model}:generateContent"
+                    return "❌ Chưa điền GEMINI_API_KEY trong mục Secrets của Streamlit."
+                # VÁ LỖI CÚ PHÁP: Thêm dấu gạch chéo xuôi '/' trước dấu hai chấm để định vị đúng tài nguyên
+                url = f"https://googleapis.com{model}/:generateContent"
                 headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY}
                 data = {"contents": [{"parts": [{"text": prompt}]}]}
                 res = await client.post(url, headers=headers, json=data)
+                
                 if res.status_code == 200:
                     return res.json()["candidates"][0]["content"]["parts"][0]["text"]
                 else:
-                    return f"[Lỗi hệ thống Gemini {res.status_code}]: {res.text}"
+                    return f"❌ Lỗi Gemini (Mã {res.status_code}): Khóa API Key hết hạn mức gọi miễn phí hoặc chưa kích hoạt."
 
+            # 2. XỬ LÝ LUỒNG GROQ
             elif provider == "groq":
                 if not GROQ_KEY or GROQ_KEY == "dummy_key":
-                    return "[Lỗi cấu hình]: Chưa điền GROQ_API_KEY trong mục Secrets."
+                    return "❌ Chưa điền GROQ_API_KEY trong mục Secrets."
                 url = "https://groq.com"
                 headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
                 data = {"model": model, "messages": [{"role": "user", "content": prompt}]}
@@ -126,24 +130,26 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
                 if res.status_code == 200:
                     return res.json()["choices"][0]["message"]["content"]
                 else:
-                    return f"[Lỗi hệ thống Groq {res.status_code}]: {res.text}"
+                    return f"❌ Lỗi Groq (Mã {res.status_code}): Tài khoản hết tiền hoặc khóa API bị lỗi."
 
+            # 3. XỬ LÝ LUỒNG OPENROUTER (6 MÔ HÌNH CÒN LẠI)
             elif provider == "openrouter":
                 if not OPENROUTER_KEY or OPENROUTER_KEY == "dummy_key":
-                    return "[Lỗi cấu hình]: Chưa điền OPENROUTER_API_KEY trong mục Secrets."
+                    return "❌ Chưa điền OPENROUTER_API_KEY trong mục Secrets."
                 url = "https://openrouter.ai"
                 headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
                 data = {"model": model, "messages": [{"role": "user", "content": prompt}]}
                 res = await client.post(url, headers=headers, json=data)
+                
                 if res.status_code == 200:
                     return res.json()["choices"][0]["message"]["content"]
                 else:
-                    return f"[Lỗi hệ thống OpenRouter {res.status_code}]: {res.text}"
+                    return f"❌ Lỗi OpenRouter (Mã {res.status_code}): Số dư tài khoản bằng 0, không thể gọi được {ahi_name}."
             
         except Exception as e:
-            return f"[Lỗi kết nối mạng]: Không thể gửi gói tin đến {ahi_name}. Chi tiết: {str(e)}"
+            return f"⚠️ Lỗi kết nối luồng xử lý: {str(e)}"
 
-    return "[Lỗi luồng]: Không tìm thấy nhà cung cấp hợp lệ."
+    return "❌ Trục trặc hệ thống phân cấp."
 
 async def generate_all_responses(prompt: str) -> Dict[str, str]:
     tasks = {name: fetch_single_ahi_old(name, cfg, prompt) for name, cfg in AHI_OLD_MODELS.items()}
@@ -178,6 +184,7 @@ if user_id:
     except Exception as db_err:
         st.sidebar.error(f"Lỗi DB: {db_err}")
 
+# Ô nhập liệu nhấn ENTER kích hoạt siêu tốc
 main_prompt = st.text_input("Nhập câu lệnh điều phối kiến thức (Gõ xong nhấn ENTER chạy luôn):", value=st.session_state["last_prompt"])
 
 if main_prompt and main_prompt != st.session_state["last_prompt"]:
@@ -185,7 +192,7 @@ if main_prompt and main_prompt != st.session_state["last_prompt"]:
     with st.spinner("Hệ thống đang truy vấn đa luồng dữ liệu siêu tốc..."):
         st.session_state["current_results"] = asyncio.run(generate_all_responses(main_prompt))
 
-if st.button("🚀 Kích hoạt Truy Vấn Đa Mô Hình Thủ Committ"):
+if st.button("🚀 Kích hoạt Truy Vấn Đa Mô Hình Thủ Công"):
     if main_prompt.strip():
         st.session_state["last_prompt"] = main_prompt
         with st.spinner("Hệ thống đang truy vấn đa luồng dữ liệu..."):
@@ -208,7 +215,4 @@ if st.session_state["current_results"]:
             add_to_memory = st.checkbox("Lưu tệp", key=checkbox_key)
             if add_to_memory:
                 with st.spinner("Đang lưu..."):
-                    save_single_passed_evolution(user_id, model_name, st.session_state["last_prompt"], ai_response)
-                    st.success(f"Đã lưu!")
-                    time.sleep(0.4)
-                    st.rerun()
+save_single_passed_evolution(user_id, model_name, st.session_state["last_prompt"], ai_response)st.success(f"Đã lưu!")time.sleep(0.4)st.rerun()
