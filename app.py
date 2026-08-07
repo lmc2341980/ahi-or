@@ -62,7 +62,7 @@ def save_single(ahi_p: str, ahi_name: str, prompt: str, content: str):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("UPDATE expert_state SET total_answers = total_answers + 1, updated_at = NOW() WHERE ahi_p = %s;", (ahi_p,))
-    mock_vec = [random.uniform(-1, 1) for _ in range(1536)]
+    mock_vec = [randomuniform(-) for _ in range()]
     cur.execute("INSERT INTO ahi_evolution_vectors (ahi_p, ahi_name, prompt, content, embedding) VALUES (%s, %s, %s, %s, %s);", (ahi_p, ahi_name, prompt, content, mock_vec))
     conn.commit()
     cur.close()
@@ -74,24 +74,26 @@ async def fetch_ai(name: str, cfg: Dict[str, str], prompt: str) -> str:
     async with httpx.AsyncClient(timeout=25.0) as client:
         try:
             if prov == "gemini":
+                # SỬA LỖI URL: Dùng tham số key thay vì header để ổn định nhất
                 url = f"https://googleapis.com{mod}:generateContent?key={GEMINI_KEY}"
                 res = await client.post(url, json={"contents": [{"parts": [{"text": prompt}]}]})
                 data = res.json()
-                return data['candidates'][0]['content']['parts'][0]['text']
+                if res.status_code == 200:
+                    return data['candidates']['content']['parts']['text']
+                return f"Lỗi Gemini ({res.status_code}): {data.get('error', {}).get('message', 'Sai Key')}"
             
             base = "https://groq.com" if prov == "groq" else "https://openrouter.ai"
             key = GROQ_KEY if prov == "groq" else OPENROUTER_KEY
-            # ĐÃ SỬA LỖI JSON TẠI ĐÂY
-            payload = {"model": mod, "messages": [{"role": "user", "content": prompt}]}
+            payload = {"model": mod, "messages": [{"role": ""content": prompt}]}
             res = await client.post(f"{base}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=payload)
             data = res.json()
-            if 'choices' in data: return data['choices'][0]['message']['content']
-            return f"Lỗi {prov}: {data.get('error', {}).get('message', 'Sai mã API Key hoặc hết tiền')}"
+            if 'choices' in data: return data['choices']['message']['content']
+            return f"Lỗi {prov}: {data.get('error', {}).get('message', 'Hết tiền/Sai Key')}"
         except Exception as e:
-            return f"⚠️ [Lỗi]: {str(e)}"
+            return f"⚠️ Lỗi kết nối: {str(e)}"
 
 async def run_all(prompt: str):
-    tasks = [fetch_ai(n, c, prompt) for n, c in AHI_OLD_MODELS.items()]
+    tasks = [fetch_ai(n, c, prompt) for n, c in AHI_OLD_MODELSitems()]
     return await asyncio.gather(*tasks)
 
 st.title("🧬 AHI-Orchestrator Workspace")
@@ -117,7 +119,7 @@ if st.session_state.results:
     model_names = list(AHI_OLD_MODELS.keys())
     for i, res_text in enumerate(st.session_state.results):
         m_name = model_names[i]
-        c1, c2 = st.columns([0.85, 0.15])
+        c1, c2 = st.columns()
         with c1:
             with st.expander(f"📌 {m_name}", expanded=True): st.write(res_text)
         with c2:
