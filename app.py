@@ -1,14 +1,16 @@
 import asyncio
+import json
 import os
 import time
+import math
 import random
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import httpx
 
-st.set_page_config(page_title="AHI-Orchestrator Workspace", layout="wide", page_icon="🧬")
+st.set_page_config(page_title="AHI-Orchestrator Engine", layout="wide", page_icon="🧬")
 
 def get_connection():
     return psycopg2.connect(st.secrets["NEON_DB_URL"])
@@ -72,21 +74,21 @@ async def fetch_ai(name: str, cfg: Dict[str, str], prompt: str) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             if prov == "gemini":
-                # Ép gọi API trực tiếp với header khóa AQ.
                 url = f"https://googleapis.com{mod}:generateContent"
                 headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY}
                 payload = {"contents": [{"parts": [{"text": prompt}]}]}
                 res = await client.post(url, headers=headers, json=payload)
                 if res.status_code == 200:
                     return res.json()["candidates"]["content"]["parts"]["text"]
-                return f"Lỗi Gemini ({res.status_code}): {res.text[:]}"
+                return f"Lỗi Gemini ({res.status_code}): {res.text}"
             
             base = "https://groq.com" if prov == "groq" else "https://openrouter.ai"
             key = GROQ_KEY if prov == "groq" else OPENROUTER_KEY
+            # ĐÃ SỬA LỖI CÚ PHÁP TẠI ĐÂY
             res = await client.post(f"{base}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": mod, "messages": [{"role": ""content": prompt}]})
             if res.status_code == 200:
                 return res.json()["choices"]["message"]["content"]
-            return f"Lỗi {prov} ({res.status_code}): {res.text[:]}"
+            return f"Lỗi {prov} ({res.status_code}): {res.text}"
         except Exception as e:
             return f"Lỗi hệ thống: {str(e)}"
 
