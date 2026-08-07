@@ -49,7 +49,7 @@ def init_neon_tables():
 
 init_neon_tables()
 
-# Đọc cấu hình bảo mật API Keys từ Secrets
+# Đọc cấu hình bảo mật API Keys
 GEMINI_KEY = st.secrets.get("GEMINI_API_KEY", "")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 OPENROUTER_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
@@ -104,34 +104,46 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
     
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            if provider == "gemini" and GEMINI_KEY and GEMINI_KEY != "dummy_key":
+            if provider == "gemini":
+                if not GEMINI_KEY or GEMINI_KEY == "dummy_key":
+                    return "[Lỗi cấu hình]: Chưa điền GEMINI_API_KEY trong mục Secrets."
                 url = f"https://googleapis.com{model}:generateContent"
                 headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY}
                 data = {"contents": [{"parts": [{"text": prompt}]}]}
                 res = await client.post(url, headers=headers, json=data)
                 if res.status_code == 200:
                     return res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                else:
+                    return f"[Lỗi hệ thống Gemini {res.status_code}]: {res.text}"
 
-            elif provider == "groq" and GROQ_KEY and GROQ_KEY != "dummy_key":
+            elif provider == "groq":
+                if not GROQ_KEY or GROQ_KEY == "dummy_key":
+                    return "[Lỗi cấu hình]: Chưa điền GROQ_API_KEY trong mục Secrets."
                 url = "https://groq.com"
                 headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
                 data = {"model": model, "messages": [{"role": "user", "content": prompt}]}
                 res = await client.post(url, headers=headers, json=data)
                 if res.status_code == 200:
                     return res.json()["choices"][0]["message"]["content"]
+                else:
+                    return f"[Lỗi hệ thống Groq {res.status_code}]: {res.text}"
 
-            elif provider == "openrouter" and OPENROUTER_KEY and OPENROUTER_KEY != "dummy_key":
+            elif provider == "openrouter":
+                if not OPENROUTER_KEY or OPENROUTER_KEY == "dummy_key":
+                    return "[Lỗi cấu hình]: Chưa điền OPENROUTER_API_KEY trong mục Secrets."
                 url = "https://openrouter.ai"
                 headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
                 data = {"model": model, "messages": [{"role": "user", "content": prompt}]}
                 res = await client.post(url, headers=headers, json=data)
                 if res.status_code == 200:
                     return res.json()["choices"][0]["message"]["content"]
+                else:
+                    return f"[Lỗi hệ thống OpenRouter {res.status_code}]: {res.text}"
             
-        except Exception:
-            pass
+        except Exception as e:
+            return f"[Lỗi kết nối mạng]: Không thể gửi gói tin đến {ahi_name}. Chi tiết: {str(e)}"
 
-    return f"[Tri thức Phân tích từ {ahi_name}]: Đã tiếp nhận xử lý song song đa luồng yêu cầu kiến thức '{prompt}'. Hệ thống ghi nhận trạng thái thông suốt và sẵn sàng tiến hóa tri thức lưu trữ đám mây."
+    return "[Lỗi luồng]: Không tìm thấy nhà cung cấp hợp lệ."
 
 async def generate_all_responses(prompt: str) -> Dict[str, str]:
     tasks = {name: fetch_single_ahi_old(name, cfg, prompt) for name, cfg in AHI_OLD_MODELS.items()}
@@ -173,7 +185,7 @@ if main_prompt and main_prompt != st.session_state["last_prompt"]:
     with st.spinner("Hệ thống đang truy vấn đa luồng dữ liệu siêu tốc..."):
         st.session_state["current_results"] = asyncio.run(generate_all_responses(main_prompt))
 
-if st.button("🚀 Kích hoạt Truy Vấn Đa Mô Hình Thủ Công"):
+if st.button("🚀 Kích hoạt Truy Vấn Đa Mô Hình Thủ Committ"):
     if main_prompt.strip():
         st.session_state["last_prompt"] = main_prompt
         with st.spinner("Hệ thống đang truy vấn đa luồng dữ liệu..."):
@@ -185,7 +197,6 @@ if st.session_state["current_results"]:
     st.info("Hãy tích chọn vào ô bên cạnh câu trả lời bạn muốn lưu vết tiến hóa. Hệ thống sẽ tự động cộng điểm lên đám mây.")
     
     for model_name, ai_response in st.session_state["current_results"].items():
-        # SỬA LỖI TẠI ĐÂY: Truyền tỷ lệ cột [5, 1] để chia khung hiển thị chuẩn xác
         col_text, col_action = st.columns([5, 1])
         
         with col_text:
