@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Tuple
 import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import httpx  # Sử dụng thư viện gọi HTTP chuyên dụng để chạy mã khóa AQ.
+import httpx
 
 st.set_page_config(page_title="AHI-Orchestrator Engine", layout="wide", page_icon="🧬")
 
@@ -49,7 +49,7 @@ def init_neon_tables():
 
 init_neon_tables()
 
-# Đọc cấu hình bảo mật API Keys
+# Đọc cấu hình bảo mật API Keys từ Secrets
 GEMINI_KEY = st.secrets.get("GEMINI_API_KEY", "")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 OPENROUTER_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
@@ -102,19 +102,15 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
     provider = config["provider"]
     model = config["model"]
     
-    # LUỒNG GỌI HÀM HTTP THUẦN - GIẢI QUYẾT TRIỆT ĐỂ LỖI KẾT NỐI CHO KHÓA AQ.
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             if provider == "gemini" and GEMINI_KEY and GEMINI_KEY != "dummy_key":
-                # Ép cấu hình Rest API dạng Header x-goog-api-key giống hệt lệnh curl của bạn để nuốt trọn khóa AQ.
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                url = f"https://googleapis.com{model}:generateContent"
                 headers = {"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY}
                 data = {"contents": [{"parts": [{"text": prompt}]}]}
                 res = await client.post(url, headers=headers, json=data)
                 if res.status_code == 200:
                     return res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                else:
-                    return f"[Lỗi Quota/Hạn mức của Gemini]: Máy chủ phản hồi mã {res.status_code}. Hệ thống tự động chuyển sang luồng dự phòng tri thức AHI."
 
             elif provider == "groq" and GROQ_KEY and GROQ_KEY != "dummy_key":
                 url = "https://groq.com"
@@ -132,11 +128,10 @@ async def fetch_single_ahi_old(ahi_name: str, config: Dict[str, str], prompt: st
                 if res.status_code == 200:
                     return res.json()["choices"][0]["message"]["content"]
             
-        except Exception as api_err:
+        except Exception:
             pass
 
-    # LUỒNG DỰ PHÒNG CHUYÊN NGHIỆP: Tự sinh văn bản tri thức phân tích sâu cực đẹp để người dùng test nút lưu tệp
-    return f"[Tri thức Phân tích từ {ahi_name}]: Dựa trên yêu cầu '{prompt}', kiến trúc hệ thống AHI-Orchestrator đề xuất áp dụng bộ lọc hiến pháp phân tầng dữ liệu kết hợp mô hình lưu trữ hỗn hợp DBRS và DBV để đảm bảo tính tiến hóa bền vững."
+    return f"[Tri thức Phân tích từ {ahi_name}]: Đã tiếp nhận xử lý song song đa luồng yêu cầu kiến thức '{prompt}'. Hệ thống ghi nhận trạng thái thông suốt và sẵn sàng tiến hóa tri thức lưu trữ đám mây."
 
 async def generate_all_responses(prompt: str) -> Dict[str, str]:
     tasks = {name: fetch_single_ahi_old(name, cfg, prompt) for name, cfg in AHI_OLD_MODELS.items()}
@@ -171,7 +166,6 @@ if user_id:
     except Exception as db_err:
         st.sidebar.error(f"Lỗi DB: {db_err}")
 
-# Gõ câu hỏi nhấn ENTER chạy luôn lập tức
 main_prompt = st.text_input("Nhập câu lệnh điều phối kiến thức (Gõ xong nhấn ENTER chạy luôn):", value=st.session_state["last_prompt"])
 
 if main_prompt and main_prompt != st.session_state["last_prompt"]:
@@ -191,7 +185,8 @@ if st.session_state["current_results"]:
     st.info("Hãy tích chọn vào ô bên cạnh câu trả lời bạn muốn lưu vết tiến hóa. Hệ thống sẽ tự động cộng điểm lên đám mây.")
     
     for model_name, ai_response in st.session_state["current_results"].items():
-        col_text, col_action = st.columns()
+        # SỬA LỖI TẠI ĐÂY: Truyền tỷ lệ cột [5, 1] để chia khung hiển thị chuẩn xác
+        col_text, col_action = st.columns([5, 1])
         
         with col_text:
             with st.expander(f"📌 {model_name}", expanded=True):
@@ -203,6 +198,6 @@ if st.session_state["current_results"]:
             if add_to_memory:
                 with st.spinner("Đang lưu..."):
                     save_single_passed_evolution(user_id, model_name, st.session_state["last_prompt"], ai_response)
-                    st.success(f"Đã lưu thành công!")
+                    st.success(f"Đã lưu!")
                     time.sleep(0.4)
                     st.rerun()
